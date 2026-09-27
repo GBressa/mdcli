@@ -289,10 +289,23 @@ export async function extractSessionFromBrowser(
     tempDir = await copyProfileToTemp(profilePath);
 
     const browserLauncher = browserType === 'chrome' ? chromium : firefox;
-    const context = await browserLauncher.launchPersistentContext(tempDir, {
-      headless: true,
-      channel: browserType === 'chrome' ? 'chrome' : undefined,
-    });
+    let context;
+    try {
+      context = await browserLauncher.launchPersistentContext(tempDir, {
+        headless: true,
+        channel: browserType === 'chrome' ? 'chrome' : undefined,
+        timeout: 30000,
+      });
+    } catch (error) {
+      if (error instanceof Error && /Timeout .*exceeded/i.test(error.message)) {
+        throw new Error(
+          `Browser took too long to start with the copied profile (this can happen on managed/corporate ` +
+            `machines where the browser tries to reach blocked network services on launch).\n` +
+            `Try: mdcli auth login --browser or --item`
+        );
+      }
+      throw error;
+    }
 
     try {
       const page = context.pages()[0] ?? (await context.newPage());
