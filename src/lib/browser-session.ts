@@ -218,6 +218,10 @@ function getFirefoxProfilePath(): string {
   return profilePath;
 }
 
+function isMacOsSandboxError(code: string): boolean {
+  return process.platform === 'darwin' && (code === 'EPERM' || code === 'EACCES');
+}
+
 async function copyProfileToTemp(profilePath: string, excludeLocks = true): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'mdcli-profile-'));
   try {
@@ -230,9 +234,14 @@ async function copyProfileToTemp(profilePath: string, excludeLocks = true): Prom
   } catch (error) {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
-    if (error instanceof Error && 'code' in error && error.code === 'EACCES') {
+    if (error instanceof Error && 'code' in error && typeof error.code === 'string' && isMacOsSandboxError(error.code)) {
       throw new Error(
-        `Cannot access browser profile at: ${profilePath}\nPermission denied. Check file permissions or close the browser and try again.`
+        `macOS blocked access to the browser profile at: ${profilePath}\n` +
+          `This is caused by macOS privacy protection (TCC), not a bug in mdcli. To fix it:\n` +
+          `  1. Open System Settings -> Privacy & Security -> Full Disk Access\n` +
+          `  2. Enable it for the terminal app you're running mdcli from (Terminal, iTerm, VS Code, etc.)\n` +
+          `  3. Restart the terminal and try again\n` +
+          `Alternatively, try: mdcli auth login --session firefox or --browser`
       );
     }
     throw error;

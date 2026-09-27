@@ -1,4 +1,4 @@
-import puppeteer, { type Page, type Browser } from 'puppeteer';
+import { chromium, type Page, type Browser } from 'playwright';
 import type { AuthConfig } from '../types/index.js';
 import { getCredentialsFromOnePassword } from './onepassword.js';
 import { detectRecaptchaChallenge, solveRecaptcha } from './captcha.js';
@@ -61,14 +61,18 @@ function validateCapturedAuth(auth: AuthConfig): string[] {
 }
 
 export async function captureAuthFromBrowser(): Promise<AuthConfig> {
-  const browser = await puppeteer.launch({
+  const browser = await chromium.launch({
     headless: false,
     args: ['--window-size=1280,800'],
-    defaultViewport: { width: 1280, height: 800 },
   });
 
-  const page = await browser.newPage();
-  await page.setRequestInterception(true);
+  let browserDisconnected = false;
+  browser.on('disconnected', () => {
+    browserDisconnected = true;
+  });
+
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
 
   let capturedHeaders: CapturedHeaders | null = null;
   let partialCaptures = 0;
@@ -78,7 +82,7 @@ export async function captureAuthFromBrowser(): Promise<AuthConfig> {
 
     if (url.includes(API_URL_PATTERN) && !capturedHeaders) {
       const headers = request.headers();
-      
+
       if (hasAllRequiredHeaders(headers)) {
         capturedHeaders = {
           authorization: headers['authorization'],
@@ -95,8 +99,6 @@ export async function captureAuthFromBrowser(): Promise<AuthConfig> {
         console.log(`⚠ Partial capture #${partialCaptures} - missing: ${missing.join(', ')}`);
       }
     }
-
-    request.continue();
   });
 
   await page.goto(LOGIN_URL);
@@ -105,19 +107,17 @@ export async function captureAuthFromBrowser(): Promise<AuthConfig> {
   console.log('   The browser will close automatically after capturing all credentials.\n');
 
   while (!capturedHeaders) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    
-    const pages = await browser.pages();
-    if (pages.length === 0) {
+    if (browserDisconnected) {
       throw new Error('Browser was closed before all credentials were captured.');
     }
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   await browser.close();
 
   const result: CapturedHeaders = capturedHeaders;
 
-  const token = result.authorization 
+  const token = result.authorization
     ? extractTokenFromAuth(result.authorization)
     : extractTokenFromCookie(result.cookie);
 
@@ -138,15 +138,10 @@ export async function captureAuthFromBrowser(): Promise<AuthConfig> {
 }
 
 async function waitForSelector(page: Page, selector: string, timeout = 30000): Promise<void> {
-  await page.waitForSelector(selector, { visible: true, timeout });
+  await page.waitForSelector(selector, { state: 'visible', timeout });
 }
 
-async function setupAuthCapture(
-  page: Page,
-  onCaptured: (headers: CapturedHeaders) => void
-): Promise<void> {
-  await page.setRequestInterception(true);
-
+function setupAuthCapture(page: Page, onCaptured: (headers: CapturedHeaders) => void): void {
   page.on('request', (request) => {
     const url = request.url();
 
@@ -164,8 +159,6 @@ async function setupAuthCapture(
         });
       }
     }
-
-    request.continue();
   });
 }
 
@@ -186,7 +179,7 @@ function headersToAuthConfig(headers: CapturedHeaders): AuthConfig {
 export async function captureAuthHeadless(opItemName: string): Promise<AuthConfig> {
   const credentials = await getCredentialsFromOnePassword(opItemName);
 
-  const browser = await puppeteer.launch({
+  const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
@@ -296,11 +289,11 @@ async function performHeadlessLogin(
   const page = await browser.newPage();
   const capturedRef: { headers: CapturedHeaders | null } = { headers: null };
 
-  await setupAuthCapture(page, (headers) => {
+  setupAuthCapture(page, (headers) => {
     capturedRef.headers = headers;
   });
 
-  await page.goto(LOGIN_URL, { waitUntil: 'networkidle2' });
+  await page.goto(LOGIN_URL, { waitUntil: 'networkidle' });
   await fillLoginForm(page, credentials.username, credentials.password);
   await fillOtpForm(page, credentials.otp);
   await retryOtpIfInvalid(page, opItemName);
