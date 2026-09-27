@@ -177,6 +177,19 @@ export interface NormalizedAccount {
   closed: boolean;
 }
 
+export interface CreateAccountPayload {
+  nome: string;
+  tipoNovo: number;
+  saldoInicial: number;
+  dataSaldoInicial: string;
+  exibirBP: boolean;
+  moeda: number;
+  liquidez?: number;
+  banco?: string;
+}
+
+export type UpdateAccountPayload = Omit<Account, 'banco'> & { banco?: string };
+
 interface Tag {
   id: number;
   nome: string;

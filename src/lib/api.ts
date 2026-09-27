@@ -19,6 +19,8 @@ import type {
   NormalizedCardEntry,
   NormalizedCardInstallment,
   Account,
+  CreateAccountPayload,
+  UpdateAccountPayload,
   CreateTagPayload,
   CreateTagResponse,
 } from '../types/index.js';
@@ -196,6 +198,18 @@ export async function fetchCategories(): Promise<CategoriesResponse> {
 
 export async function fetchAccounts(): Promise<AccountsResponse> {
   return apiRequest<AccountsResponse>('/v1/cadastros/contas?meta=true&paginate=false');
+}
+
+export async function createAccount(payload: CreateAccountPayload): Promise<Account> {
+  return apiPost<CreateAccountPayload, Account>('/v1/cadastros/contas', payload);
+}
+
+export async function updateAccount(id: number, payload: UpdateAccountPayload): Promise<Account> {
+  return apiPut<UpdateAccountPayload, Account>(`/v1/cadastros/contas/${id}`, payload);
+}
+
+export async function deleteAccount(id: number): Promise<void> {
+  return apiDelete(`/v1/cadastros/contas/${id}`);
 }
 
 export async function fetchTags(): Promise<TagsResponse> {
