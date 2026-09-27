@@ -63,6 +63,7 @@ function validateCapturedAuth(auth: AuthConfig): string[] {
 export async function captureAuthFromBrowser(): Promise<AuthConfig> {
   const browser = await chromium.launch({
     headless: false,
+    channel: 'chrome',
     args: ['--window-size=1280,800'],
   });
 
@@ -181,6 +182,7 @@ export async function captureAuthHeadless(opItemName: string): Promise<AuthConfi
 
   const browser = await chromium.launch({
     headless: true,
+    channel: 'chrome',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
