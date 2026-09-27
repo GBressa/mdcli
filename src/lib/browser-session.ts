@@ -249,8 +249,32 @@ async function copyProfileToTemp(profilePath: string, excludeLocks = true): Prom
   return tempDir;
 }
 
+function isTransientFsError(code: string): boolean {
+  return code === 'EBUSY' || code === 'EPERM' || code === 'ENOTEMPTY';
+}
+
 async function cleanupTempDir(tempDir: string): Promise<void> {
-  await rm(tempDir, { recursive: true, force: true });
+  const maxAttempts = 5;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : '';
+      const isLastAttempt = attempt === maxAttempts;
+
+      if (isLastAttempt || !isTransientFsError(code)) {
+        // Best-effort cleanup: a leftover temp profile copy should never mask
+        // a successful auth result (e.g. the browser process on Windows can
+        // hold a file handle open briefly after context.close() resolves).
+        console.warn(`⚠ Could not remove temporary profile copy at ${tempDir}. You can delete it manually.`);
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
 }
 
 export async function extractSessionFromBrowser(
