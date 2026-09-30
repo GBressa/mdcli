@@ -9,6 +9,7 @@ export interface ApiHeaders {
   Mdapikey: string;
   Mduid: string;
   Authorization?: string;
+  Cookie?: string;
 }
 
 interface CategoryDfcDre {
