@@ -224,7 +224,23 @@ export function getFirefoxProfilePath(): string {
     throw new Error(`Firefox profiles.ini not found at: ${profilesIniPath}\nTry: mdcli auth login --session chrome or --browser`);
   }
 
-  const profiles = parseFirefoxProfilesIni(profilesIniPath);
+  let profiles: FirefoxProfile[];
+  try {
+    profiles = parseFirefoxProfilesIni(profilesIniPath);
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : '';
+    if (isMacOsSandboxError(code)) {
+      throw new Error(
+        `macOS blocked access to the Firefox profile at: ${profilesIniPath}\n` +
+          `This is caused by macOS privacy protection (TCC), not a bug in mdcli. To fix it:\n` +
+          `  1. Open System Settings -> Privacy & Security -> Full Disk Access\n` +
+          `  2. Enable it for the terminal app you're running mdcli from (Terminal, iTerm, VS Code, etc.)\n` +
+          `  3. Restart the terminal and try again\n` +
+          `Alternatively, try: mdcli auth login --session chrome or --browser`
+      );
+    }
+    throw error;
+  }
 
   if (profiles.length === 0) {
     throw new Error(`No Firefox profiles found in: ${profilesIniPath}\nTry: mdcli auth login --session chrome or --browser`);
