@@ -50,47 +50,65 @@ The API key is saved to config and reused for future logins.
 
 ## Authentication
 
-The CLI supports multiple authentication methods:
+The API authenticates each request with two headers, `Mdapikey` and `Mduid`, plus a bearer token when one is available. Every login method below ends up saving these values to `~/.config/mdcli/mdcli.config.json`.
 
-### Browser Session (Default)
-
-If you're already logged into MeuDinheiro in your browser, the CLI can extract your session automatically:
+### Default flow
 
 ```bash
-# Extracts session from Chrome (default)
 mdcli auth login
+```
 
-# Explicitly use Chrome
+Without flags, the CLI first tries the method that worked last time (a Chrome session on first run). If that fails and you're in an interactive terminal, it offers the other methods. Outside a terminal (scripts, CI) it exits with an error listing the explicit flags instead of waiting for input.
+
+### Browser session
+
+If you're already logged into Meu Dinheiro in a browser, the CLI can reuse that session:
+
+```bash
 mdcli auth login --session chrome
-
-# Use Firefox instead
+mdcli auth login --session edge
 mdcli auth login --session firefox
 ```
 
-If session extraction fails (e.g., not logged in, browser not found), you'll be prompted with fallback options:
-1. Use 1Password for automatic login
-2. Try Firefox session instead
-3. Open browser for manual login
-4. Enter credentials manually
-5. Cancel
+On macOS, reading a browser profile requires **Full Disk Access** for the terminal app you run `mdcli` from (System Settings → Privacy & Security → Full Disk Access). Restart the terminal after enabling it.
 
-### 1Password (Automatic)
+### Manual entry
+
+Copy the headers from your browser's DevTools: open the **Network** tab, pick any request to `/api/`, and look under **Request Headers**.
 
 ```bash
-# Use 1Password item (prompts for item name on first run)
-mdcli auth login --item
+mdcli auth login --manual
+```
 
-# Specify item name directly
+You'll be asked for `Mdapikey`, `Mduid`, and the bearer token (the `Authorization` value without `Bearer `). This method doesn't automate a browser, so it works even where the others are blocked.
+
+### 1Password
+
+```bash
 mdcli auth login --item "My Meu Dinheiro"
 ```
 
-### Browser Login (Manual)
+The item name is saved and reused on later logins.
 
-Opens a browser for you to log in manually:
+### Browser login
+
+Opens Chrome or Edge (whichever is installed) so you can log in by hand:
 
 ```bash
 mdcli auth login --browser
 ```
+
+The login page is protected by Cloudflare, which may reject logins from an automated browser. If you see "Falha na verificação", use `--session` or `--manual` instead.
+
+### Troubleshooting
+
+```bash
+mdcli auth doctor
+```
+
+Checks whether the Chrome, Edge, and Firefox profiles are present and readable, whether the 1Password CLI is installed, and whether you're currently authenticated.
+
+When the API rejects the saved credentials, the CLI retries with the method you last logged in with. For manual and browser logins it asks you to run `mdcli auth login` again.
 
 ### Check Status
 
@@ -131,6 +149,22 @@ mdcli auth login --item "My Meu Dinheiro"
 
 # List accounts
 mdcli accounts list --active
+
+# List the account types accepted by --type
+mdcli accounts types
+
+# Create an account (--type accepts the ID or the name from "accounts types")
+mdcli accounts create --name "Nubank" --type "Conta Corrente" --bank nubank --balance 0
+
+# Update an account (only the fields you pass are changed)
+mdcli accounts update 1167419 --name "Nubank PF"
+
+# Archive (deactivate) or reactivate an account
+mdcli accounts update 1167419 --inactive
+mdcli accounts update 1167419 --active
+
+# Delete an account (asks for confirmation)
+mdcli accounts delete 1167419
 
 # Create an alias for quick access
 mdcli accounts alias add --id 1167419 --name mp
@@ -188,12 +222,14 @@ mdcli tags delete 12345
 ### Auth
 | Feature | Status |
 |---------|--------|
-| Browser session extraction (Chrome/Firefox) | Done |
+| Browser session extraction (Chrome/Edge/Firefox) | Done |
 | Browser login (auto-capture) | Done |
 | Automatic login (1Password CLI) | Done |
-| Auto token refresh on 401 | Done |
+| Remember last login method | Done |
+| Auto refresh on 401 (using the last method) | Done |
 | Manual token entry | Done |
 | Status check | Done |
+| Diagnostics (`auth doctor`) | Done |
 | Logout | Done |
 
 ### Accounts
@@ -203,10 +239,11 @@ mdcli tags delete 12345
 | Filter by active | Done |
 | JSON output | Done |
 | Aliases (add/list/rm/update) | Done |
-| Create | Missing |
-| Update | Missing |
-| Delete | Missing |
-| Archive | Missing |
+| List types | Done |
+| Create | Done |
+| Update | Done |
+| Delete | Done |
+| Archive | Done |
 
 ### Categories
 | Feature | Status |
