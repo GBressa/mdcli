@@ -394,6 +394,20 @@ export async function extractSessionFromBrowser(
 
       await page.goto('https://app.meudinheiroweb.com.br/', { waitUntil: 'domcontentloaded' });
 
+      try {
+        await page.waitForFunction(
+          () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const browserWindow = globalThis as any;
+            return Boolean(browserWindow.__captured_loginconfig || browserWindow.loginconfig);
+          },
+          { timeout: 10000 }
+        );
+      } catch {
+        // The Angular app may still be bootstrapping; fall through and let
+        // the loginConfig check below report a clear "not logged in" error.
+      }
+
       const loginConfig = await page.evaluate((): LoginConfigRaw | null => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const browserWindow = globalThis as any;
