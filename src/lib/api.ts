@@ -33,7 +33,7 @@ import { popStaleNameCacheUse } from './cache-invalidation.js';
 import { captureAuthHeadless } from './browser-auth.js';
 import { extractSessionFromBrowser } from './browser-session.js';
 
-const BASE_URL = 'https://app.meudinheiroweb.com.br/api';
+const BASE_URL = process.env.MDCLI_API_URL ?? 'https://app.meudinheiroweb.com.br/api';
 
 let isRefreshing = false;
 

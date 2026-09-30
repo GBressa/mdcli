@@ -232,6 +232,17 @@ mdcli tags update 12345 --active
 mdcli tags delete 12345
 ```
 
+## Development
+
+```bash
+bun run test        # test suite
+bun run typecheck
+bun run lint
+bun run knip        # unused files, dependencies, and exports
+```
+
+The tests in `test/` run the real CLI as a subprocess against a local mock of the Meu Dinheiro API (`MDCLI_API_URL` overrides the API base URL), with `HOME` pointed at a temp dir. They never touch your real config, browser profiles, or the live API, and they check both what the CLI prints and the exact requests it sends.
+
 ## Features
 
 ### Auth

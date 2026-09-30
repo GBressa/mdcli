@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "knip": "knip"
+    "knip": "knip",
+    "test": "bun test --timeout 20000"
   },
   "keywords": [
     "meu-dinheiro",
