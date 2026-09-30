@@ -8,6 +8,8 @@ import { Database } from 'bun:sqlite';
 import { chromium, firefox } from 'playwright';
 import type { AuthConfig } from '../types/index.js';
 
+const API_URL_PATTERN = 'app.meudinheiroweb.com.br/api/';
+
 interface LoginConfigRaw {
   mdApiKey?: string;
   mdPolicy?: string;
@@ -392,20 +394,36 @@ export async function extractSessionFromBrowser(
         });
       });
 
+      // Fallback signal: if the app is already authenticated, it skips the
+      // login page entirely and goes straight to loading dashboard data --
+      // loginconfig may never be set in that path, but the real API calls
+      // still carry the auth headers, so capture those too.
+      const apiHeadersRef: { captured: Record<string, string> | null } = { captured: null };
+      page.on('request', (request) => {
+        if (apiHeadersRef.captured) return;
+        const url = request.url();
+        if (!url.includes(API_URL_PATTERN)) return;
+        const headers = request.headers();
+        if (headers['mdapikey'] && headers['mdpolicy'] && headers['mdsignature'] && headers['mduid']) {
+          apiHeadersRef.captured = headers;
+        }
+      });
+
       await page.goto('https://app.meudinheiroweb.com.br/', { waitUntil: 'domcontentloaded' });
 
-      try {
-        await page.waitForFunction(
-          () => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const browserWindow = globalThis as any;
-            return Boolean(browserWindow.__captured_loginconfig || browserWindow.loginconfig);
-          },
-          { timeout: 10000 }
-        );
-      } catch {
-        // The Angular app may still be bootstrapping; fall through and let
-        // the loginConfig check below report a clear "not logged in" error.
+      // Wait for whichever signal shows up first: the Angular app setting
+      // loginconfig (unauthenticated -> login page), or a real API request
+      // carrying auth headers (already authenticated -> straight to
+      // dashboard, loginconfig may never be set at all).
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline && !apiHeadersRef.captured) {
+        const hasLoginConfig = await page.evaluate(() => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const browserWindow = globalThis as any;
+          return Boolean(browserWindow.__captured_loginconfig || browserWindow.loginconfig);
+        });
+        if (hasLoginConfig) break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
 
       const loginConfig = await page.evaluate((): LoginConfigRaw | null => {
@@ -425,23 +443,34 @@ export async function extractSessionFromBrowser(
       const cookies = await context.cookies('https://app.meudinheiroweb.com.br/');
       const authCookie = cookies.find((c) => c.name === 'mdauthtoken0');
 
-      let token = loginConfig?.mdauthtoken ?? authCookie?.value ?? '';
+      const capturedApiHeaders = apiHeadersRef.captured;
+
+      let token =
+        loginConfig?.mdauthtoken ??
+        authCookie?.value ??
+        (capturedApiHeaders?.authorization?.replace(/^Bearer\s+/i, '') ?? '');
 
       if (!token && browserType === 'chrome') {
         token = getChromeCookieValue('mdauthtoken0', '.meudinheiroweb.com.br') ?? '';
       }
 
-      if (!loginConfig) {
-        throw new Error('User is not logged into MeuDinheiro. Try: mdcli auth login --browser');
-      }
+      const apiKey = loginConfig?.mdApiKey ?? capturedApiHeaders?.mdapikey;
+      const policy = loginConfig?.mdPolicy ?? capturedApiHeaders?.mdpolicy;
+      const signature = loginConfig?.mdSignature ?? capturedApiHeaders?.mdsignature;
 
-      if (!loginConfig.mdApiKey || !loginConfig.mdPolicy || !loginConfig.mdSignature) {
+      if (!apiKey || !policy || !signature) {
+        if (!loginConfig && !capturedApiHeaders) {
+          throw new Error('User is not logged into MeuDinheiro. Try: mdcli auth login --browser');
+        }
         throw new Error(
           'Failed to extract authentication config from page. The site structure may have changed.\nTry: mdcli auth login --browser'
         );
       }
 
-      let uid = loginConfig.uid != null ? String(loginConfig.uid) : extractUidFromJwt(token);
+      let uid =
+        loginConfig?.uid != null
+          ? String(loginConfig.uid)
+          : capturedApiHeaders?.mduid ?? extractUidFromJwt(token);
 
       // Fallback: read uid from localStorage rememberedUsers
       if (!uid) {
@@ -461,11 +490,13 @@ export async function extractSessionFromBrowser(
         throw new Error('Could not determine user ID. Try: mdcli auth login --browser');
       }
 
+      // loginConfig's values come from a JS object and are URL-encoded;
+      // capturedApiHeaders come straight from an HTTP header and are not.
       return {
         token,
-        apiKey: loginConfig.mdApiKey,
-        policy: decodeURIComponent(loginConfig.mdPolicy),
-        signature: decodeURIComponent(loginConfig.mdSignature),
+        apiKey,
+        policy: loginConfig?.mdPolicy ? decodeURIComponent(policy) : policy,
+        signature: loginConfig?.mdSignature ? decodeURIComponent(signature) : signature,
         uid,
       };
     } finally {
