@@ -12,8 +12,6 @@ const API_URL_PATTERN = 'app.meudinheiroweb.com.br/api/';
 
 interface LoginConfigRaw {
   mdApiKey?: string;
-  mdPolicy?: string;
-  mdSignature?: string;
   mdauthtoken?: string;
   uid?: number | null;
 }
@@ -404,7 +402,7 @@ export async function extractSessionFromBrowser(
         const url = request.url();
         if (!url.includes(API_URL_PATTERN)) return;
         const headers = request.headers();
-        if (headers['mdapikey'] && headers['mdpolicy'] && headers['mdsignature'] && headers['mduid']) {
+        if (headers['mdapikey'] && headers['mduid']) {
           apiHeadersRef.captured = headers;
         }
       });
@@ -433,8 +431,6 @@ export async function extractSessionFromBrowser(
         if (!config) return null;
         return {
           mdApiKey: config.mdApiKey,
-          mdPolicy: config.mdPolicy,
-          mdSignature: config.mdSignature,
           mdauthtoken: config.mdauthtoken,
           uid: config.uid,
         };
@@ -455,10 +451,8 @@ export async function extractSessionFromBrowser(
       }
 
       const apiKey = loginConfig?.mdApiKey ?? capturedApiHeaders?.mdapikey;
-      const policy = loginConfig?.mdPolicy ?? capturedApiHeaders?.mdpolicy;
-      const signature = loginConfig?.mdSignature ?? capturedApiHeaders?.mdsignature;
 
-      if (!apiKey || !policy || !signature) {
+      if (!apiKey) {
         if (!loginConfig && !capturedApiHeaders) {
           throw new Error('User is not logged into MeuDinheiro. Try: mdcli auth login --browser');
         }
@@ -490,14 +484,10 @@ export async function extractSessionFromBrowser(
         throw new Error('Could not determine user ID. Try: mdcli auth login --browser');
       }
 
-      // loginConfig's values come from a JS object and are URL-encoded;
-      // capturedApiHeaders come straight from an HTTP header and are not.
       return {
-        token,
         apiKey,
-        policy: loginConfig?.mdPolicy ? decodeURIComponent(policy) : policy,
-        signature: loginConfig?.mdSignature ? decodeURIComponent(signature) : signature,
         uid,
+        ...(token ? { token } : {}),
       };
     } finally {
       await context.close();

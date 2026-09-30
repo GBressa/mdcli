@@ -27,31 +27,23 @@ import {
 import type { AuthConfig, AuthMethod } from '../types/index.js';
 
 async function promptManualAuth(): Promise<AuthConfig> {
-  logger.info('Enter the authentication headers from your browser dev tools:');
+  logger.info('Enter the authentication headers from your browser dev tools (Network tab, any request to /api/):');
   logger.blank();
-
-  const token = await password({
-    message: 'Bearer Token (Authorization header value without "Bearer "):',
-    mask: '*',
-  });
 
   const apiKey = await input({
     message: 'Mdapikey:',
-  });
-
-  const policy = await input({
-    message: 'Mdpolicy:',
-  });
-
-  const signature = await input({
-    message: 'Mdsignature:',
   });
 
   const uid = await input({
     message: 'Mduid:',
   });
 
-  return { token, apiKey, policy, signature, uid };
+  const token = await password({
+    message: 'Bearer Token (Authorization header value without "Bearer ", leave blank if not present):',
+    mask: '*',
+  });
+
+  return { apiKey, uid, ...(token ? { token } : {}) };
 }
 
 async function resolveOpItemName(providedItem?: string): Promise<string> {

@@ -34,14 +34,14 @@ const BASE_URL = 'https://app.meudinheiroweb.com.br/api';
 let isRefreshing = false;
 
 function buildHeaders(auth: AuthConfig): ApiHeaders {
-  return {
-    Authorization: `Bearer ${auth.token}`,
-    Cookie: `mdauthtoken0=${auth.token}`,
+  const headers: ApiHeaders = {
     Mdapikey: auth.apiKey,
-    Mdpolicy: auth.policy,
-    Mdsignature: auth.signature,
     Mduid: auth.uid,
   };
+  if (auth.token) {
+    headers.Authorization = `Bearer ${auth.token}`;
+  }
+  return headers;
 }
 
 async function refreshAuthAndRetry<T>(

@@ -29,7 +29,7 @@ async function launchAvailableChromiumChannel(
   throw lastError;
 }
 
-const REQUIRED_HEADERS = ['authorization', 'mdapikey', 'mdpolicy', 'mdsignature', 'mduid'] as const;
+const REQUIRED_HEADERS = ['mdapikey', 'mduid'] as const;
 
 const SELECTORS = {
   loginInput: '#container > div > div > form > mdw-input-container > input',
@@ -42,21 +42,13 @@ const SELECTORS = {
 } as const;
 
 interface CapturedHeaders {
-  authorization: string;
-  cookie: string;
+  authorization?: string;
   mdapikey: string;
-  mdpolicy: string;
-  mdsignature: string;
   mduid: string;
 }
 
 function extractTokenFromAuth(authorization: string): string {
   return authorization.replace(/^Bearer\s+/i, '');
-}
-
-function extractTokenFromCookie(cookie: string): string {
-  const match = cookie.match(/mdauthtoken0=([^;]+)/);
-  return match?.[1] ?? '';
 }
 
 function hasAllRequiredHeaders(headers: Record<string, string>): boolean {
@@ -66,19 +58,9 @@ function hasAllRequiredHeaders(headers: Record<string, string>): boolean {
   });
 }
 
-function getMissingHeaders(headers: Record<string, string>): string[] {
-  return REQUIRED_HEADERS.filter((key) => {
-    const value = headers[key];
-    return value === undefined || value === '';
-  });
-}
-
 function validateCapturedAuth(auth: AuthConfig): string[] {
   const missing: string[] = [];
-  if (!auth.token) missing.push('token');
   if (!auth.apiKey) missing.push('apiKey');
-  if (!auth.policy) missing.push('policy');
-  if (!auth.signature) missing.push('signature');
   if (!auth.uid) missing.push('uid');
   return missing;
 }
@@ -101,7 +83,6 @@ export async function captureAuthFromBrowser(): Promise<AuthConfig> {
   const page = await context.newPage();
 
   let capturedHeaders: CapturedHeaders | null = null;
-  let partialCaptures = 0;
 
   page.on('request', (request) => {
     const url = request.url();
@@ -112,17 +93,10 @@ export async function captureAuthFromBrowser(): Promise<AuthConfig> {
       if (hasAllRequiredHeaders(headers)) {
         capturedHeaders = {
           authorization: headers['authorization'],
-          cookie: headers['cookie'] ?? '',
           mdapikey: headers['mdapikey'],
-          mdpolicy: headers['mdpolicy'],
-          mdsignature: headers['mdsignature'],
           mduid: headers['mduid'],
         };
-        console.log('✓ All authentication headers captured successfully.');
-      } else if (headers['authorization']) {
-        partialCaptures++;
-        const missing = getMissingHeaders(headers);
-        console.log(`⚠ Partial capture #${partialCaptures} - missing: ${missing.join(', ')}`);
+        console.log('✓ Authentication headers captured successfully.');
       }
     }
   });
@@ -143,16 +117,10 @@ export async function captureAuthFromBrowser(): Promise<AuthConfig> {
 
   const result: CapturedHeaders = capturedHeaders;
 
-  const token = result.authorization
-    ? extractTokenFromAuth(result.authorization)
-    : extractTokenFromCookie(result.cookie);
-
   const auth: AuthConfig = {
-    token,
     apiKey: result.mdapikey,
-    policy: result.mdpolicy,
-    signature: result.mdsignature,
     uid: result.mduid,
+    ...(result.authorization ? { token: extractTokenFromAuth(result.authorization) } : {}),
   };
 
   const missingFields = validateCapturedAuth(auth);
@@ -177,10 +145,7 @@ function setupAuthCapture(page: Page, onCaptured: (headers: CapturedHeaders) => 
       if (hasAllRequiredHeaders(headers)) {
         onCaptured({
           authorization: headers['authorization'],
-          cookie: headers['cookie'] ?? '',
           mdapikey: headers['mdapikey'],
-          mdpolicy: headers['mdpolicy'],
-          mdsignature: headers['mdsignature'],
           mduid: headers['mduid'],
         });
       }
@@ -189,16 +154,10 @@ function setupAuthCapture(page: Page, onCaptured: (headers: CapturedHeaders) => 
 }
 
 function headersToAuthConfig(headers: CapturedHeaders): AuthConfig {
-  const token = headers.authorization
-    ? extractTokenFromAuth(headers.authorization)
-    : extractTokenFromCookie(headers.cookie);
-
   return {
-    token,
     apiKey: headers.mdapikey,
-    policy: headers.mdpolicy,
-    signature: headers.mdsignature,
     uid: headers.mduid,
+    ...(headers.authorization ? { token: extractTokenFromAuth(headers.authorization) } : {}),
   };
 }
 
