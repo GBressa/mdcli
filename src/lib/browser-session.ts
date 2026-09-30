@@ -85,7 +85,7 @@ function extractUidFromJwt(token: string): string | null {
 }
 
 export interface BrowserSessionOptions {
-  browser: 'chrome' | 'firefox';
+  browser: 'chrome' | 'firefox' | 'edge';
   timeout?: number;
 }
 
@@ -95,25 +95,39 @@ const CHROME_PROFILE_PATHS: Record<string, string> = {
   linux: join(homedir(), '.config', 'google-chrome'),
 };
 
+const EDGE_PROFILE_PATHS: Record<string, string> = {
+  darwin: join(homedir(), 'Library', 'Application Support', 'Microsoft Edge'),
+  win32: join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Edge', 'User Data'),
+  linux: join(homedir(), '.config', 'microsoft-edge'),
+};
+
 const FIREFOX_PROFILE_PARENT_PATHS: Record<string, string> = {
   darwin: join(homedir(), 'Library', 'Application Support', 'Firefox'),
   win32: join(process.env.APPDATA || '', 'Mozilla', 'Firefox'),
   linux: join(homedir(), '.mozilla', 'firefox'),
 };
 
-export function getChromeProfilePath(): string {
+function getChromiumProfilePath(paths: Record<string, string>, label: string): string {
   const platform = process.platform;
-  const profilePath = CHROME_PROFILE_PATHS[platform];
+  const profilePath = paths[platform];
 
   if (!profilePath) {
     throw new Error(`Unsupported platform: ${platform}. Only macOS, Windows, and Linux are supported.`);
   }
 
   if (!existsSync(profilePath)) {
-    throw new Error(`Chrome not found. Expected profile at: ${profilePath}\nTry: mdcli auth login --session firefox or --browser`);
+    throw new Error(`${label} not found. Expected profile at: ${profilePath}\nTry: mdcli auth login --session firefox or --browser`);
   }
 
   return profilePath;
+}
+
+export function getChromeProfilePath(): string {
+  return getChromiumProfilePath(CHROME_PROFILE_PATHS, 'Chrome');
+}
+
+export function getEdgeProfilePath(): string {
+  return getChromiumProfilePath(EDGE_PROFILE_PATHS, 'Edge');
 }
 
 interface FirefoxProfile {
@@ -182,12 +196,12 @@ function parseFirefoxProfilesIni(iniPath: string): FirefoxProfile[] {
   return profiles;
 }
 
-export function checkChromeProfileReadable(): { ok: true } | { ok: false; reason: string } {
+function checkChromiumProfileReadable(getPath: () => string): { ok: true } | { ok: false; reason: string } {
   let profilePath: string;
   try {
-    profilePath = getChromeProfilePath();
+    profilePath = getPath();
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : 'Chrome profile not found' };
+    return { ok: false, reason: error instanceof Error ? error.message : 'Browser profile not found' };
   }
 
   try {
@@ -205,6 +219,14 @@ export function checkChromeProfileReadable(): { ok: true } | { ok: false; reason
     }
     return { ok: false, reason: error instanceof Error ? error.message : 'Unknown error reading profile' };
   }
+}
+
+export function checkChromeProfileReadable(): { ok: true } | { ok: false; reason: string } {
+  return checkChromiumProfileReadable(getChromeProfilePath);
+}
+
+export function checkEdgeProfileReadable(): { ok: true } | { ok: false; reason: string } {
+  return checkChromiumProfileReadable(getEdgeProfilePath);
 }
 
 export function getFirefoxProfilePath(): string {
@@ -322,19 +344,25 @@ export async function extractSessionFromBrowser(
   options?: BrowserSessionOptions
 ): Promise<AuthConfig> {
   const browserType = options?.browser ?? 'chrome';
-  const profilePath = browserType === 'chrome' ? getChromeProfilePath() : getFirefoxProfilePath();
+  const profilePath =
+    browserType === 'chrome'
+      ? getChromeProfilePath()
+      : browserType === 'edge'
+        ? getEdgeProfilePath()
+        : getFirefoxProfilePath();
 
   let tempDir: string | null = null;
 
   try {
     tempDir = await copyProfileToTemp(profilePath);
 
-    const browserLauncher = browserType === 'chrome' ? chromium : firefox;
+    const browserLauncher = browserType === 'firefox' ? firefox : chromium;
+    const channel = browserType === 'chrome' ? 'chrome' : browserType === 'edge' ? 'msedge' : undefined;
     let context;
     try {
       context = await browserLauncher.launchPersistentContext(tempDir, {
         headless: true,
-        channel: browserType === 'chrome' ? 'chrome' : undefined,
+        channel,
         timeout: 30000,
       });
     } catch (error) {

@@ -19,8 +19,10 @@ import { captureAuthFromBrowser, captureAuthHeadless } from '../lib/browser-auth
 import {
   extractSessionFromBrowser,
   getChromeProfilePath,
+  getEdgeProfilePath,
   getFirefoxProfilePath,
   checkChromeProfileReadable,
+  checkEdgeProfileReadable,
 } from '../lib/browser-session.js';
 import type { AuthConfig, AuthMethod } from '../types/index.js';
 
@@ -79,6 +81,12 @@ async function runChromeSession(): Promise<LoginAttempt> {
   return { auth, method: 'browser-chrome' };
 }
 
+async function runEdgeSession(): Promise<LoginAttempt> {
+  logger.info('Extracting session from Edge...');
+  const auth = await extractSessionFromBrowser({ browser: 'edge' });
+  return { auth, method: 'browser-edge' };
+}
+
 async function runFirefoxSession(): Promise<LoginAttempt> {
   logger.info('Extracting session from Firefox...');
   const auth = await extractSessionFromBrowser({ browser: 'firefox' });
@@ -116,6 +124,8 @@ function runPreferredMethod(method: AuthMethod): Promise<LoginAttempt> {
   switch (method) {
     case 'browser-chrome':
       return runChromeSession();
+    case 'browser-edge':
+      return runEdgeSession();
     case 'browser-firefox':
       return runFirefoxSession();
     case '1password':
@@ -134,6 +144,7 @@ function isInteractiveTerminal(): boolean {
 async function runFallbackPrompt(excludeMethod: AuthMethod): Promise<LoginAttempt | null> {
   const allChoices: { value: string; name: string; method: AuthMethod }[] = [
     { value: 'chrome', name: 'Try Chrome session again', method: 'browser-chrome' },
+    { value: 'edge', name: 'Try Edge session instead', method: 'browser-edge' },
     { value: 'firefox', name: 'Try Firefox session instead', method: 'browser-firefox' },
     { value: '1password', name: '1Password (automatic login)', method: '1password' },
     { value: 'browser', name: 'Open browser for manual login', method: 'browser-manual' },
@@ -150,6 +161,8 @@ async function runFallbackPrompt(excludeMethod: AuthMethod): Promise<LoginAttemp
   switch (fallbackChoice) {
     case 'chrome':
       return runChromeSession();
+    case 'edge':
+      return runEdgeSession();
     case 'firefox':
       return runFirefoxSession();
     case '1password':
@@ -185,10 +198,15 @@ async function loginAction(options: {
       result = await runBrowserManual();
     } else if (options.session) {
       const browserType = options.session === true ? 'chrome' : options.session;
-      if (browserType !== 'chrome' && browserType !== 'firefox') {
-        throw new Error(`Invalid browser type: ${browserType}. Use "chrome" or "firefox".`);
+      if (browserType !== 'chrome' && browserType !== 'firefox' && browserType !== 'edge') {
+        throw new Error(`Invalid browser type: ${browserType}. Use "chrome", "edge", or "firefox".`);
       }
-      result = browserType === 'chrome' ? await runChromeSession() : await runFirefoxSession();
+      result =
+        browserType === 'chrome'
+          ? await runChromeSession()
+          : browserType === 'edge'
+            ? await runEdgeSession()
+            : await runFirefoxSession();
     } else if (options.item) {
       result = await runOnePassword(options.item);
     } else {
@@ -237,6 +255,7 @@ function formatAuthMethod(method: AuthMethod | null): string {
   
   const labels: Record<AuthMethod, string> = {
     'browser-chrome': 'Browser session (Chrome)',
+    'browser-edge': 'Browser session (Edge)',
     'browser-firefox': 'Browser session (Firefox)',
     '1password': '1Password',
     'browser-manual': 'Browser (manual login)',
@@ -318,6 +337,18 @@ async function doctorAction(): Promise<void> {
   }
 
   try {
+    getEdgeProfilePath();
+    const readable = checkEdgeProfileReadable();
+    if (readable.ok) {
+      logger.success('Edge profile found and readable');
+    } else {
+      logger.error(`Edge profile found but not readable: ${readable.reason}`);
+    }
+  } catch (error) {
+    logger.warning(`Edge profile not found: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+
+  try {
     getFirefoxProfilePath();
     logger.success('Firefox profile found');
   } catch (error) {
@@ -355,7 +386,7 @@ authCommand
   .description('Authenticate with Meu Dinheiro (uses 1Password by default)')
   .option('-m, --manual', 'Manually enter authentication headers')
   .option('-b, --browser', 'Open browser for manual login')
-  .option('-s, --session [browser]', 'Extract session from browser profile (chrome|firefox)')
+  .option('-s, --session [browser]', 'Extract session from browser profile (chrome|edge|firefox)')
   .option('-i, --item <name>', '1Password item name (saved to config)')
   .option('-c, --captcha-key <key>', '2captcha API key for solving reCAPTCHA (saved to config)')
   .action(loginAction);

@@ -6,6 +6,29 @@ import { detectRecaptchaChallenge, solveRecaptcha } from './captcha.js';
 const LOGIN_URL = 'https://app.meudinheiroweb.com.br/';
 const API_URL_PATTERN = 'app.meudinheiroweb.com.br/api/';
 
+const CHROMIUM_CHANNELS = ['chrome', 'msedge'] as const;
+
+function isChannelNotFoundError(error: unknown): boolean {
+  return error instanceof Error && /is not found|Executable doesn't exist/i.test(error.message);
+}
+
+async function launchAvailableChromiumChannel(
+  launch: (channel: string) => Promise<Browser>
+): Promise<Browser> {
+  let lastError: unknown;
+  for (const channel of CHROMIUM_CHANNELS) {
+    try {
+      return await launch(channel);
+    } catch (error) {
+      lastError = error;
+      if (!isChannelNotFoundError(error)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
+
 const REQUIRED_HEADERS = ['authorization', 'mdapikey', 'mdpolicy', 'mdsignature', 'mduid'] as const;
 
 const SELECTORS = {
@@ -61,11 +84,13 @@ function validateCapturedAuth(auth: AuthConfig): string[] {
 }
 
 export async function captureAuthFromBrowser(): Promise<AuthConfig> {
-  const browser = await chromium.launch({
-    headless: false,
-    channel: 'chrome',
-    args: ['--window-size=1280,800'],
-  });
+  const browser = await launchAvailableChromiumChannel((channel) =>
+    chromium.launch({
+      headless: false,
+      channel,
+      args: ['--window-size=1280,800'],
+    })
+  );
 
   let browserDisconnected = false;
   browser.on('disconnected', () => {
@@ -180,11 +205,13 @@ function headersToAuthConfig(headers: CapturedHeaders): AuthConfig {
 export async function captureAuthHeadless(opItemName: string): Promise<AuthConfig> {
   const credentials = await getCredentialsFromOnePassword(opItemName);
 
-  const browser = await chromium.launch({
-    headless: true,
-    channel: 'chrome',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+  const browser = await launchAvailableChromiumChannel((channel) =>
+    chromium.launch({
+      headless: true,
+      channel,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    })
+  );
 
   try {
     const auth = await performHeadlessLogin(browser, credentials, opItemName);

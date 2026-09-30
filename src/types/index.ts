@@ -243,7 +243,7 @@ export interface NameCache {
   tags?: NameCacheEntry;
 }
 
-export type AuthMethod = 'browser-chrome' | 'browser-firefox' | '1password' | 'browser-manual' | 'manual';
+export type AuthMethod = 'browser-chrome' | 'browser-firefox' | 'browser-edge' | '1password' | 'browser-manual' | 'manual';
 
 export interface MdcliConfig {
   auth?: AuthConfig;
