@@ -69,12 +69,24 @@ export interface Category {
   _ordenacao: string;
   sistema: boolean;
   tipoL?: number;
+  /** Parent category ID. Absent on top-level categories. */
+  pai?: number;
 }
 
 export interface CategoriesResponse {
   meta: CategoryMeta;
   items: Category[];
 }
+
+export interface CreateCategoryPayload {
+  nome: string;
+  nomeRel: string;
+  tipo: 'd' | 'r';
+  /** 0 for a top-level category; the web app sends the parent ID as a string. */
+  pai: number | string;
+}
+
+export type UpdateCategoryPayload = Category & { pai: number };
 
 export interface NormalizedCategory {
   id: number;

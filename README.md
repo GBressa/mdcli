@@ -203,6 +203,21 @@ mdcli cards invoice --account "Itaú Personalité" --month 2026-02
 # Show upcoming installments on a card
 mdcli cards future --account <cardId>
 
+# List only expense categories
+mdcli categories list --type expense
+
+# Create a category, then a subcategory (inherits the parent's type)
+mdcli categories create --name "Pets" --type expense
+mdcli categories create --name "Vet" --parent "Pets"
+
+# Rename, archive, or reactivate a category
+mdcli categories update 12345 --name "Pet care"
+mdcli categories update 12345 --inactive
+
+# Delete a category; its entries move to --move-to (must be the same type).
+# Categories with subcategories must have those removed first.
+mdcli categories delete 12345 --move-to "Outros"
+
 # Create a tag (color is optional, defaults to gray)
 mdcli tags create --name "Travel" --color "#FF6600"
 
@@ -250,13 +265,13 @@ mdcli tags delete 12345
 |---------|--------|
 | List | Done |
 | Filter by active | Done |
-| Filter by type | Missing |
+| Filter by type | Done |
 | JSON output | Done |
 | Aliases (add/list/rm/update) | Done |
-| Create | Missing |
-| Update | Missing |
-| Delete | Missing |
-| Archive | Missing |
+| Create (incl. subcategories) | Done |
+| Update | Done |
+| Delete (moves entries to another category) | Done |
+| Archive | Done |
 
 ### Tags
 | Feature | Status |

@@ -5,6 +5,7 @@ import * as readline from 'readline';
 import { logger } from '../utils/logger.js';
 import { fetchAccounts, normalizeAccounts, createAccount, updateAccount, deleteAccount } from '../lib/api.js';
 import { addAlias, getAliases, removeAlias, updateAlias } from '../lib/aliases.js';
+import { invalidateNameCache } from '../lib/config.js';
 import type { AccountMeta, CreateAccountPayload, UpdateAccountPayload } from '../types/index.js';
 
 function formatCurrency(value: number): string {
@@ -167,6 +168,7 @@ async function createAccountAction(options: CreateAccountOptions): Promise<void>
     }
 
     const account = await createAccount(payload);
+    invalidateNameCache('accounts');
 
     if (options.json) {
       console.log(JSON.stringify(account, null, 2));
@@ -304,6 +306,7 @@ async function updateAccountAction(id: string, options: UpdateAccountOptions): P
     };
 
     const account = await updateAccount(accountId, payload);
+    invalidateNameCache('accounts');
 
     if (options.json) {
       console.log(JSON.stringify(account, null, 2));
@@ -369,6 +372,7 @@ async function deleteAccountAction(id: string, options: DeleteAccountOptions): P
     }
 
     await deleteAccount(accountId);
+    invalidateNameCache('accounts');
 
     if (options.json) {
       console.log(JSON.stringify({ deleted: true, id: accountId }, null, 2));

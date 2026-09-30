@@ -3,6 +3,9 @@ import type {
   AuthConfig,
   AuthMethod,
   CategoriesResponse,
+  Category,
+  CreateCategoryPayload,
+  UpdateCategoryPayload,
   AccountsResponse,
   TagsResponse,
   EntriesResponse,
@@ -202,6 +205,18 @@ async function apiPut<T, R>(endpoint: string, body: T): Promise<R> {
 
 export async function fetchCategories(): Promise<CategoriesResponse> {
   return apiRequest<CategoriesResponse>('/v1/cadastros/categorias?meta=true&paginate=false');
+}
+
+export async function createCategory(payload: CreateCategoryPayload): Promise<Category> {
+  return apiPost<CreateCategoryPayload, Category>('/v1/cadastros/categorias', payload);
+}
+
+export async function updateCategory(id: number, payload: UpdateCategoryPayload): Promise<Category> {
+  return apiPut<UpdateCategoryPayload, Category>(`/v1/cadastros/categorias/${id}`, payload);
+}
+
+export async function deleteCategory(id: number, moveEntriesToId: number): Promise<void> {
+  return apiDelete(`/v1/cadastros/categorias/${id}?idDestino=${moveEntriesToId}`);
 }
 
 export async function fetchAccounts(): Promise<AccountsResponse> {
