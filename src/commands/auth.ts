@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { $ } from 'bun';
 import { input, password, select } from '@inquirer/prompts';
 import { logger } from '../utils/logger.js';
 import {
@@ -15,7 +16,12 @@ import {
   setCaptchaApiKey,
 } from '../lib/config.js';
 import { captureAuthFromBrowser, captureAuthHeadless } from '../lib/browser-auth.js';
-import { extractSessionFromBrowser } from '../lib/browser-session.js';
+import {
+  extractSessionFromBrowser,
+  getChromeProfilePath,
+  getFirefoxProfilePath,
+  checkChromeProfileReadable,
+} from '../lib/browser-session.js';
 import type { AuthConfig, AuthMethod } from '../types/index.js';
 
 async function promptManualAuth(): Promise<AuthConfig> {
@@ -62,6 +68,101 @@ async function resolveOpItemName(providedItem?: string): Promise<string> {
   });
 }
 
+interface LoginAttempt {
+  auth: AuthConfig;
+  method: AuthMethod;
+}
+
+async function runChromeSession(): Promise<LoginAttempt> {
+  logger.info('Extracting session from Chrome...');
+  const auth = await extractSessionFromBrowser({ browser: 'chrome' });
+  return { auth, method: 'browser-chrome' };
+}
+
+async function runFirefoxSession(): Promise<LoginAttempt> {
+  logger.info('Extracting session from Firefox...');
+  const auth = await extractSessionFromBrowser({ browser: 'firefox' });
+  return { auth, method: 'browser-firefox' };
+}
+
+async function runOnePassword(itemOverride?: string): Promise<LoginAttempt> {
+  const itemName = await resolveOpItemName(itemOverride);
+  const isNewItem = getOpItem() !== itemName;
+
+  logger.info(`Starting automatic authentication via 1Password (${itemName})...`);
+  const auth = await captureAuthHeadless(itemName);
+
+  if (isNewItem) {
+    setOpItem(itemName);
+    logger.info(`1Password item "${itemName}" saved to config.`);
+    logger.info('To change it, run: mdcli auth login --item <new-name>');
+  }
+
+  return { auth, method: '1password' };
+}
+
+async function runBrowserManual(): Promise<LoginAttempt> {
+  logger.info('Starting browser authentication...');
+  const auth = await captureAuthFromBrowser();
+  return { auth, method: 'browser-manual' };
+}
+
+async function runManualEntry(): Promise<LoginAttempt> {
+  const auth = await promptManualAuth();
+  return { auth, method: 'manual' };
+}
+
+function runPreferredMethod(method: AuthMethod): Promise<LoginAttempt> {
+  switch (method) {
+    case 'browser-chrome':
+      return runChromeSession();
+    case 'browser-firefox':
+      return runFirefoxSession();
+    case '1password':
+      return runOnePassword();
+    case 'browser-manual':
+      return runBrowserManual();
+    case 'manual':
+      return runManualEntry();
+  }
+}
+
+function isInteractiveTerminal(): boolean {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
+async function runFallbackPrompt(excludeMethod: AuthMethod): Promise<LoginAttempt | null> {
+  const allChoices: { value: string; name: string; method: AuthMethod }[] = [
+    { value: 'chrome', name: 'Try Chrome session again', method: 'browser-chrome' },
+    { value: 'firefox', name: 'Try Firefox session instead', method: 'browser-firefox' },
+    { value: '1password', name: '1Password (automatic login)', method: '1password' },
+    { value: 'browser', name: 'Open browser for manual login', method: 'browser-manual' },
+    { value: 'manual', name: 'Enter credentials manually', method: 'manual' },
+  ];
+
+  const choices = allChoices.filter((c) => c.method !== excludeMethod);
+
+  const fallbackChoice = await select({
+    message: 'How would you like to authenticate?',
+    choices: [...choices.map(({ value, name }) => ({ value, name })), { value: 'abort', name: 'Cancel' }],
+  });
+
+  switch (fallbackChoice) {
+    case 'chrome':
+      return runChromeSession();
+    case 'firefox':
+      return runFirefoxSession();
+    case '1password':
+      return runOnePassword();
+    case 'browser':
+      return runBrowserManual();
+    case 'manual':
+      return runManualEntry();
+    default:
+      return null;
+  }
+}
+
 async function loginAction(options: {
   manual?: boolean;
   browser?: boolean;
@@ -76,92 +177,52 @@ async function loginAction(options: {
       logger.info('To change it, run: mdcli auth login --captcha-key <new-key>');
     }
 
-    let auth: AuthConfig;
-    let method: AuthMethod;
+    let result: LoginAttempt;
 
     if (options.manual) {
-      auth = await promptManualAuth();
-      method = 'manual';
+      result = await runManualEntry();
     } else if (options.browser) {
-      logger.info('Starting browser authentication...');
-      auth = await captureAuthFromBrowser();
-      method = 'browser-manual';
+      result = await runBrowserManual();
     } else if (options.session) {
       const browserType = options.session === true ? 'chrome' : options.session;
       if (browserType !== 'chrome' && browserType !== 'firefox') {
         throw new Error(`Invalid browser type: ${browserType}. Use "chrome" or "firefox".`);
       }
-      logger.info(`Extracting session from ${browserType === 'chrome' ? 'Chrome' : 'Firefox'}...`);
-      auth = await extractSessionFromBrowser({ browser: browserType });
-      method = browserType === 'chrome' ? 'browser-chrome' : 'browser-firefox';
+      result = browserType === 'chrome' ? await runChromeSession() : await runFirefoxSession();
     } else if (options.item) {
-      const itemName = await resolveOpItemName(options.item);
-      const isNewItem = getOpItem() !== itemName;
-
-      logger.info(`Starting automatic authentication via 1Password (${itemName})...`);
-      auth = await captureAuthHeadless(itemName);
-      method = '1password';
-
-      if (isNewItem) {
-        setOpItem(itemName);
-        logger.info(`1Password item "${itemName}" saved to config.`);
-        logger.info('To change it, run: mdcli auth login --item <new-name>');
-      }
+      result = await runOnePassword(options.item);
     } else {
+      const savedMethod = getAuthMethod();
+      const primaryMethod: AuthMethod = savedMethod && savedMethod !== 'manual' ? savedMethod : 'browser-chrome';
+
+      if (savedMethod && savedMethod !== 'manual') {
+        logger.info(`Trying last used method: ${formatAuthMethod(savedMethod)}`);
+      }
+
       try {
-        logger.info('Extracting session from Chrome...');
-        auth = await extractSessionFromBrowser({ browser: 'chrome' });
-        method = 'browser-chrome';
-      } catch (sessionError) {
-        const sessionMessage = sessionError instanceof Error ? sessionError.message : 'Unknown error';
-        logger.warning(`Browser session extraction failed: ${sessionMessage}`);
+        result = await runPreferredMethod(primaryMethod);
+      } catch (primaryError) {
+        const primaryMessage = primaryError instanceof Error ? primaryError.message : 'Unknown error';
+        logger.warning(`${formatAuthMethod(primaryMethod)} failed: ${primaryMessage}`);
         logger.blank();
 
-        const fallbackChoice = await select({
-          message: 'How would you like to authenticate?',
-          choices: [
-            { value: '1password', name: '1Password (automatic login)' },
-            { value: 'firefox', name: 'Try Firefox session instead' },
-            { value: 'browser', name: 'Open browser for manual login' },
-            { value: 'manual', name: 'Enter credentials manually' },
-            { value: 'abort', name: 'Cancel' },
-          ],
-        });
+        if (!isInteractiveTerminal()) {
+          throw new Error(
+            'No interactive terminal available to choose a fallback method.\n' +
+              'Use one of: --session chrome, --session firefox, --item <name>, --browser, --manual'
+          );
+        }
 
-        if (fallbackChoice === 'abort') {
+        const fallbackResult = await runFallbackPrompt(primaryMethod);
+        if (!fallbackResult) {
           logger.info('Authentication cancelled.');
           return;
         }
-
-        if (fallbackChoice === '1password') {
-          const itemName = await resolveOpItemName(undefined);
-          const isNewItem = getOpItem() !== itemName;
-
-          logger.info(`Starting automatic authentication via 1Password (${itemName})...`);
-          auth = await captureAuthHeadless(itemName);
-          method = '1password';
-
-          if (isNewItem) {
-            setOpItem(itemName);
-            logger.info(`1Password item "${itemName}" saved to config.`);
-            logger.info('To change it, run: mdcli auth login --item <new-name>');
-          }
-        } else if (fallbackChoice === 'firefox') {
-          logger.info('Extracting session from Firefox...');
-          auth = await extractSessionFromBrowser({ browser: 'firefox' });
-          method = 'browser-firefox';
-        } else if (fallbackChoice === 'browser') {
-          logger.info('Starting browser authentication...');
-          auth = await captureAuthFromBrowser();
-          method = 'browser-manual';
-        } else {
-          auth = await promptManualAuth();
-          method = 'manual';
-        }
+        result = fallbackResult;
       }
     }
 
-    setAuth(auth, method);
+    setAuth(result.auth, result.method);
     logger.success('Authentication saved successfully!');
     logger.log(`  Config file: ${getConfigPath()}`);
   } catch (error) {
@@ -229,6 +290,63 @@ function logoutAction(options: { all?: boolean }): void {
   logger.log(`  Config file: ${getConfigPath()}`);
 }
 
+async function checkOnePasswordCli(): Promise<boolean> {
+  try {
+    await $`op --version`.quiet();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function doctorAction(): Promise<void> {
+  logger.header('Authentication Doctor');
+
+  logger.kv('Platform', process.platform);
+  logger.blank();
+
+  try {
+    getChromeProfilePath();
+    const readable = checkChromeProfileReadable();
+    if (readable.ok) {
+      logger.success('Chrome profile found and readable');
+    } else {
+      logger.error(`Chrome profile found but not readable: ${readable.reason}`);
+    }
+  } catch (error) {
+    logger.warning(`Chrome profile not found: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+
+  try {
+    getFirefoxProfilePath();
+    logger.success('Firefox profile found');
+  } catch (error) {
+    logger.warning(`Firefox profile not found: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+
+  if (await checkOnePasswordCli()) {
+    logger.success('1Password CLI ("op") found on PATH');
+  } else {
+    logger.warning('1Password CLI ("op") not found. Install: https://developer.1password.com/docs/cli/get-started/');
+  }
+
+  const captchaKey = getCaptchaApiKey();
+  if (captchaKey) {
+    logger.success('2captcha API key configured');
+  } else {
+    logger.info('2captcha API key not configured (only needed if login shows a reCAPTCHA challenge)');
+  }
+
+  logger.blank();
+  if (hasAuth()) {
+    logger.success(`Currently authenticated via ${formatAuthMethod(getAuthMethod())}`);
+  } else {
+    logger.warning('Not currently authenticated. Run "mdcli auth login".');
+  }
+
+  logger.blank();
+}
+
 export const authCommand = new Command('auth')
   .description('Manage authentication');
 
@@ -252,3 +370,8 @@ authCommand
   .description('Remove the stored session (use --all to also clear the saved 1Password item and 2captcha key)')
   .option('--all', 'Also clear the saved 1Password item and 2captcha API key')
   .action(logoutAction);
+
+authCommand
+  .command('doctor')
+  .description('Diagnose common authentication problems (browser profiles, 1Password CLI, current session)')
+  .action(doctorAction);

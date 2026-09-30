@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -101,7 +101,7 @@ const FIREFOX_PROFILE_PARENT_PATHS: Record<string, string> = {
   linux: join(homedir(), '.mozilla', 'firefox'),
 };
 
-function getChromeProfilePath(): string {
+export function getChromeProfilePath(): string {
   const platform = process.platform;
   const profilePath = CHROME_PROFILE_PATHS[platform];
 
@@ -182,7 +182,32 @@ function parseFirefoxProfilesIni(iniPath: string): FirefoxProfile[] {
   return profiles;
 }
 
-function getFirefoxProfilePath(): string {
+export function checkChromeProfileReadable(): { ok: true } | { ok: false; reason: string } {
+  let profilePath: string;
+  try {
+    profilePath = getChromeProfilePath();
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : 'Chrome profile not found' };
+  }
+
+  try {
+    readdirSync(profilePath);
+    return { ok: true };
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : '';
+    if (isMacOsSandboxError(code)) {
+      return {
+        ok: false,
+        reason:
+          'macOS is blocking access (Full Disk Access needed). ' +
+          'Open System Settings -> Privacy & Security -> Full Disk Access and enable it for this terminal app.',
+      };
+    }
+    return { ok: false, reason: error instanceof Error ? error.message : 'Unknown error reading profile' };
+  }
+}
+
+export function getFirefoxProfilePath(): string {
   const platform = process.platform;
   const firefoxDir = FIREFOX_PROFILE_PARENT_PATHS[platform];
 
