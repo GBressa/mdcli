@@ -87,6 +87,11 @@ function formatCurrency(value: number): string {
   return value >= 0 ? chalk.green(formatted) : chalk.red(formatted);
 }
 
+function formatSignedCurrency(value: number): string {
+  const formatted = value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return value >= 0 ? chalk.green(formatted) : chalk.red(formatted);
+}
+
 function formatStatus(status: 'reconciled' | 'pending' | 'scheduled'): string {
   const statusConfig = {
     reconciled: { label: 'Reconciled', color: chalk.green },
@@ -341,14 +346,14 @@ async function summaryAction(options: SummaryOptions): Promise<void> {
       style: { head: ['cyan'] },
     });
     for (const row of rows) {
-      table.push([row.label, row.count, formatCurrency(row.income), formatCurrency(row.expenses), formatCurrency(row.net)]);
+      table.push([row.label, row.count, formatCurrency(row.income), formatCurrency(row.expenses), formatSignedCurrency(row.net)]);
     }
     table.push([
       chalk.bold(total.label),
       chalk.bold(String(total.count)),
       formatCurrency(total.income),
       formatCurrency(total.expenses),
-      formatCurrency(total.net),
+      formatSignedCurrency(total.net),
     ]);
 
     logger.header(`Summary by ${by} | ${params.startDate} to ${params.endDate}`);

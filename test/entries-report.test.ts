@@ -121,6 +121,15 @@ describe('entries summary', () => {
     expect(result.stdout).toContain('1 transfer(s) left out');
   });
 
+  test('the table shows a negative net with its minus sign', async () => {
+    const result = await runCli(['entries', 'summary', ...PERIOD, '--by', 'month'], { home, api });
+
+    expect(result.exitCode).toBe(0);
+    const stdout = result.stdout.replace(/\u00a0/g, ' ');
+    expect(stdout).toContain('-R$ 60,25');
+    expect(stdout).toContain('R$ 4.699,50');
+  });
+
   test('rejects an unknown --by', async () => {
     const result = await runCli(['entries', 'summary', ...PERIOD, '--by', 'week'], { home, api });
 
