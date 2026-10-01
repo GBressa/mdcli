@@ -140,6 +140,7 @@ interface FilterOptions {
   tag?: string;
   keywords?: string;
   value?: string;
+  excludeCategory?: string;
 }
 
 function fail(message: string): never {
@@ -201,6 +202,34 @@ async function resolveEntryFilters(options: FilterOptions): Promise<Omit<Entries
   };
 }
 
+/** Resolves --exclude-category to those categories plus all of their subcategories. */
+async function resolveExcludedCategories(input: string | undefined): Promise<Set<number>> {
+  const excluded = new Set<number>();
+  if (!input) return excluded;
+
+  const result = await resolveIds('categories', input);
+  if (result.unresolved.length > 0) {
+    fail(`Unknown category(ies) in --exclude-category: ${result.unresolved.join(', ')}`);
+  }
+
+  const { items } = await fetchCategories();
+  const pending = [...result.ids];
+  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
+    if (excluded.has(id)) continue;
+    excluded.add(id);
+    pending.push(...items.filter((c) => c.pai === id).map((c) => c.id));
+  }
+  return excluded;
+}
+
+async function loadEntries(options: FilterOptions) {
+  const params = await resolveEntryFilters(options);
+  const excludedCategories = await resolveExcludedCategories(options.excludeCategory);
+  const all = normalizeEntries(await fetchAllEntries(params));
+  const entries = all.filter((e) => e.categoryId === null || !excludedCategories.has(e.categoryId));
+  return { params, entries, excludedByCategory: all.length - entries.length };
+}
+
 async function loadNames(): Promise<{ accounts: Map<number, string>; categories: Map<number, string> }> {
   const [accounts, categories] = await Promise.all([fetchAccounts(), fetchCategories()]);
   return {
@@ -223,8 +252,7 @@ interface ListOptions extends FilterOptions {
 async function listAction(options: ListOptions): Promise<void> {
   try {
     checkOutputFormat(options);
-    const params = await resolveEntryFilters(options);
-    const entries = normalizeEntries(await fetchAllEntries(params));
+    const { entries } = await loadEntries(options);
 
     if (options.json) {
       console.log(JSON.stringify(entries, null, 2));
@@ -296,10 +324,9 @@ async function summaryAction(options: SummaryOptions): Promise<void> {
       fail(`Invalid --by "${options.by}". Use category, month, or account.`);
     }
 
-    const params = await resolveEntryFilters(options);
-    const allEntries = normalizeEntries(await fetchAllEntries(params));
-    const entries = options.includeTransfers ? allEntries : allEntries.filter((e) => e.type !== 'transfer');
-    const skippedTransfers = allEntries.length - entries.length;
+    const { params, entries: filtered, excludedByCategory } = await loadEntries(options);
+    const entries = options.includeTransfers ? filtered : filtered.filter((e) => e.type !== 'transfer');
+    const skippedTransfers = filtered.length - entries.length;
 
     const names = by === 'month' ? null : await loadNames();
     const rows = summarize(entries, (e) => {
@@ -323,7 +350,7 @@ async function summaryAction(options: SummaryOptions): Promise<void> {
     if (options.json) {
       console.log(
         JSON.stringify(
-          { groupBy: by, from: params.startDate, to: params.endDate, skippedTransfers, rows, total },
+          { groupBy: by, from: params.startDate, to: params.endDate, skippedTransfers, excludedByCategory, rows, total },
           null,
           2
         )
@@ -358,6 +385,9 @@ async function summaryAction(options: SummaryOptions): Promise<void> {
 
     logger.header(`Summary by ${by} | ${params.startDate} to ${params.endDate}`);
     console.log(table.toString());
+    if (excludedByCategory > 0) {
+      console.log(chalk.gray(`\n${excludedByCategory} entr${excludedByCategory === 1 ? 'y' : 'ies'} left out by --exclude-category.`));
+    }
     if (skippedTransfers > 0) {
       console.log(chalk.gray(`\n${skippedTransfers} transfer(s) left out. Use --include-transfers to count them.`));
     }
@@ -379,7 +409,8 @@ function addFilterOptions(command: Command): Command {
     .option('-c, --category <ids>', 'Filter by category ID(s), alias(es), or exact name(s) (case-insensitive), comma-separated')
     .option('-g, --tag <ids>', 'Filter by tag ID(s), alias(es), or exact name(s) (case-insensitive), comma-separated')
     .option('-k, --keywords <text>', 'Search by keywords')
-    .option('-v, --value <amount>', 'Filter by value');
+    .option('-v, --value <amount>', 'Filter by value')
+    .option('-x, --exclude-category <ids>', 'Leave out these categories and their subcategories, comma-separated');
 }
 
 addFilterOptions(entriesCommand.command('list').description('List entries for one or more accounts'))

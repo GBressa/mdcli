@@ -137,3 +137,50 @@ describe('entries summary', () => {
     expect(result.output).toContain('Invalid --by "week"');
   });
 });
+
+describe('--exclude-category', () => {
+  test('leaves out a category together with its subcategories', async () => {
+    const result = await runCli(
+      ['entries', 'summary', ...PERIOD, '--exclude-category', 'alimentação', '--json'],
+      { home, api }
+    );
+
+    expect(result.exitCode).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(report.rows.map((r: { label: string }) => r.label)).toEqual(['(no category)', 'Salário']);
+    expect(report.excludedByCategory).toBe(3);
+    expect(report.total).toMatchObject({ count: 2, income: 5000, expenses: -10 });
+  });
+
+  test('excluding a subcategory keeps its parent', async () => {
+    const result = await runCli(
+      ['entries', 'list', ...PERIOD, '--exclude-category', 'Alimentação/Mercado', '--json'],
+      { home, api }
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).map((e: { id: number }) => e.id)).toEqual([3, 4, 5, 6]);
+  });
+
+  test('accepts several categories and IDs', async () => {
+    const result = await runCli(['entries', 'list', ...PERIOD, '-x', '11,Salário', '--json'], { home, api });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).map((e: { id: number }) => e.id)).toEqual([4, 5, 6]);
+  });
+
+  test('rejects an unknown category before fetching entries', async () => {
+    const result = await runCli(['entries', 'summary', ...PERIOD, '-x', 'Viagens'], { home, api });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain('Unknown category(ies) in --exclude-category: Viagens');
+    expect(api.requests.some((r) => r.path === '/v2/lancamentos')).toBe(false);
+  });
+
+  test('the table says how many entries were excluded', async () => {
+    const result = await runCli(['entries', 'summary', ...PERIOD, '-x', 'Alimentação'], { home, api });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('3 entries left out by --exclude-category.');
+  });
+});

@@ -185,6 +185,10 @@ mdcli entries summary --account mp,nubank
 mdcli entries summary --account mp --from 2026-01-01 --to 2026-03-31 --by month
 mdcli entries summary --account mp,nubank --by account --include-transfers
 
+# Leave out categories (and their subcategories), e.g. a card bill paid from
+# checking that would double-count the purchases already on the card
+mdcli entries summary --account mp,nubank --exclude-category "Pagamento de cartão"
+
 # Create an entry
 mdcli entries create --account mp --description "Groceries" --value 150 --category food
 
@@ -321,6 +325,7 @@ The tests in `test/` run the real CLI as a subprocess against a local mock of th
 | CSV export | Done |
 | All pages (no 200-entry cap) | Done |
 | Summary by category/month/account | Done |
+| Exclude categories (`--exclude-category`) | Done |
 | Alias support (account/category/tag) | Done |
 | Create (single) | Done |
 | Create (recurring) | Done |
