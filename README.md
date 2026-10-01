@@ -175,6 +175,16 @@ mdcli entries list --account mp --from 2024-01-01 --to 2024-01-31
 # List entries using the account's exact name (case-insensitive)
 mdcli entries list --account "Nubank - Conta Corrente" --from 2024-01-01 --to 2024-01-31
 
+# Export entries to CSV (all pages, with account and category names)
+mdcli entries list --account mp --from 2026-01-01 --to 2026-03-31 --csv > entries.csv
+
+# Income vs. expenses by category for the current month (transfers left out)
+mdcli entries summary --account mp,nubank
+
+# Month by month for a quarter, or per account; --json/--csv also work here
+mdcli entries summary --account mp --from 2026-01-01 --to 2026-03-31 --by month
+mdcli entries summary --account mp,nubank --by account --include-transfers
+
 # Create an entry
 mdcli entries create --account mp --description "Groceries" --value 150 --category food
 
@@ -308,6 +318,9 @@ The tests in `test/` run the real CLI as a subprocess against a local mock of th
 | Filter by keywords | Done |
 | Filter by value | Done |
 | JSON output | Done |
+| CSV export | Done |
+| All pages (no 200-entry cap) | Done |
+| Summary by category/month/account | Done |
 | Alias support (account/category/tag) | Done |
 | Create (single) | Done |
 | Create (recurring) | Done |

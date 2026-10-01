@@ -72,3 +72,20 @@ export const CATEGORIES_RESPONSE = {
 };
 
 export const EMPTY_ENTRIES_RESPONSE = { list: [], meta: { total: 0, page: 1, pageSize: 200 } };
+
+function entry(id: number, conta: number, categoria: number | undefined, tipo: 'd' | 'r' | 't', valor: number, data: string, descricao = `Entry ${id}`) {
+  return { id, descricao, conta, categoria, tipo, valor, data, dataPrevista: data, status: 'conciliado' };
+}
+
+export const SAMPLE_ENTRIES = [
+  entry(1, 1001, 11, 'd', -100.5, '2026-01-05', 'Mercado'),
+  entry(2, 1001, 11, 'd', -50.25, '2026-02-10', 'Mercado'),
+  entry(3, 1001, 20, 'r', 5000, '2026-01-01', 'Salário'),
+  entry(4, 1002, 10, 'd', -200, '2026-01-20', 'Restaurante'),
+  entry(5, 1001, 30, 't', -1000, '2026-01-15', 'Transferência para poupança'),
+  entry(6, 1001, undefined, 'd', -10, '2026-02-01', 'Café, "especial"'),
+];
+
+export function entriesPage(list: unknown[], total = list.length) {
+  return { list, meta: { total, page: 1, pageSize: 200 } };
+}

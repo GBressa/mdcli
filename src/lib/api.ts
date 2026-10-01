@@ -267,7 +267,26 @@ export async function fetchEntry(id: number): Promise<Entry> {
   return apiRequest<Entry>(`/v1/lancamentos/${id}`);
 }
 
-export async function fetchEntries(params: EntriesParams): Promise<EntriesResponse> {
+const ENTRIES_PAGE_SIZE = 200;
+const MAX_ENTRIES_PAGES = 100;
+
+/** Fetches every page of entries matching the filters. */
+export async function fetchAllEntries(params: Omit<EntriesParams, 'page' | 'pageSize'>): Promise<Entry[]> {
+  const entries: Entry[] = [];
+  for (let page = 1; page <= MAX_ENTRIES_PAGES; page++) {
+    const response = await fetchEntries({ ...params, page, pageSize: ENTRIES_PAGE_SIZE });
+    entries.push(...response.list);
+    const total = response.meta?.total;
+    if (response.list.length < ENTRIES_PAGE_SIZE || (total !== undefined && entries.length >= total)) {
+      return entries;
+    }
+  }
+  throw new Error(
+    `More than ${MAX_ENTRIES_PAGES * ENTRIES_PAGE_SIZE} entries match these filters. Narrow the date range or filters.`
+  );
+}
+
+async function fetchEntries(params: EntriesParams): Promise<EntriesResponse> {
   const contas = JSON.stringify({
     faturas: params.includeFaturas ?? true,
     ids: params.accountIds,
@@ -363,8 +382,8 @@ function mapEntryStatus(status: string): 'reconciled' | 'pending' | 'scheduled' 
   return statusMap[status] ?? 'pending';
 }
 
-export function normalizeEntries(response: EntriesResponse): NormalizedEntry[] {
-  return response.list.map((entry) => ({
+export function normalizeEntries(entries: Entry[]): NormalizedEntry[] {
+  return entries.map((entry) => ({
     id: entry.id,
     description: entry.descricao,
     date: entry.data,
