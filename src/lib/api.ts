@@ -78,10 +78,12 @@ async function reacquireAuth(): Promise<{ auth: AuthConfig; method: AuthMethod }
 async function getRefreshedAuth(): Promise<AuthConfig> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
-      console.log('🔄 Credentials rejected, refreshing with the last login method...');
+      // stderr: a refresh can fire inside --json/--csv commands, where
+      // stdout must stay machine-readable.
+      console.error('🔄 Credentials rejected, refreshing with the last login method...');
       const { auth: newAuth, method } = await reacquireAuth();
       setAuth(newAuth, method);
-      console.log('✓ Credentials refreshed');
+      console.error('✓ Credentials refreshed');
       return newAuth;
     })().finally(() => {
       refreshPromise = null;
@@ -97,7 +99,12 @@ async function refreshAuthAndRetry<T>(
 
   const response = await requestFn(newAuth);
   if (!response.ok) {
-    throw new Error(`API request failed after refresh: ${response.status} ${response.statusText}`);
+    // Same failure handling as the non-refresh paths: invalidate a possibly
+    // stale name-cache use and keep the API's error body in the message.
+    const cachedType = popStaleNameCacheUse();
+    if (cachedType) invalidateNameCache(cachedType);
+    const errorText = await response.text();
+    throw new Error(`API request failed after refresh: ${response.status} ${response.statusText} - ${errorText}`);
   }
   return response.json() as Promise<T>;
 }
