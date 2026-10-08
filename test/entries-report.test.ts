@@ -37,6 +37,25 @@ describe('entries list pagination', () => {
       .map((r) => JSON.parse(r.query.get('list') ?? '{}').page);
     expect(pages).toEqual([1, 2, 3]);
   });
+
+  test('keeps paging past a short page while meta.total says more remain', async () => {
+    const all = Array.from({ length: 5 }, (_, i) => ({ ...SAMPLE_ENTRIES[0], id: i + 1 }));
+    api.on('GET /v2/lancamentos', (req) => {
+      const { page } = JSON.parse(req.query.get('list') ?? '{}');
+      // The server caps pageSize below the requested 200.
+      const list = all.slice((page - 1) * 2, page * 2);
+      return { list, meta: { total: all.length, page, pageSize: 2 } };
+    });
+
+    const result = await runCli(['entries', 'list', ...PERIOD, '--json'], { home, api });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toHaveLength(5);
+    const pages = api.requests
+      .filter((r) => r.path === '/v2/lancamentos')
+      .map((r) => JSON.parse(r.query.get('list') ?? '{}').page);
+    expect(pages).toEqual([1, 2, 3]);
+  });
 });
 
 describe('entries list --csv', () => {

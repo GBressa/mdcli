@@ -415,26 +415,35 @@ export async function extractSessionFromBrowser(
       // dashboard, loginconfig may never be set at all).
       const deadline = Date.now() + 10000;
       while (Date.now() < deadline && !apiHeadersRef.captured) {
-        const hasLoginConfig = await page.evaluate(() => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const browserWindow = globalThis as any;
-          return Boolean(browserWindow.__captured_loginconfig || browserWindow.loginconfig);
-        });
+        // The SPA can navigate mid-poll (login -> dashboard), destroying the
+        // execution context. A failed evaluate just means "not yet" — retry
+        // until the deadline instead of failing the whole extraction.
+        const hasLoginConfig = await page
+          .evaluate(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const browserWindow = globalThis as any;
+            return Boolean(browserWindow.__captured_loginconfig || browserWindow.loginconfig);
+          })
+          .catch(() => false);
         if (hasLoginConfig) break;
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
 
-      const loginConfig = await page.evaluate((): LoginConfigRaw | null => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const browserWindow = globalThis as any;
-        const config = browserWindow.__captured_loginconfig || browserWindow.loginconfig;
-        if (!config) return null;
-        return {
-          mdApiKey: config.mdApiKey,
-          mdauthtoken: config.mdauthtoken,
-          uid: config.uid,
-        };
-      });
+      const loginConfig = await page
+        .evaluate((): LoginConfigRaw | null => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const browserWindow = globalThis as any;
+          const config = browserWindow.__captured_loginconfig || browserWindow.loginconfig;
+          if (!config) return null;
+          return {
+            mdApiKey: config.mdApiKey,
+            mdauthtoken: config.mdauthtoken,
+            uid: config.uid,
+          };
+        })
+        // Same navigation hazard as above: fall through to the cookie and
+        // captured-header fallbacks instead of throwing.
+        .catch(() => null);
 
       const cookies = await context.cookies('https://app.meudinheiroweb.com.br/');
       const authCookie = cookies.find((c) => c.name === 'mdauthtoken0');

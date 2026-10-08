@@ -276,8 +276,17 @@ export async function fetchAllEntries(params: Omit<EntriesParams, 'page' | 'page
   for (let page = 1; page <= MAX_ENTRIES_PAGES; page++) {
     const response = await fetchEntries({ ...params, page, pageSize: ENTRIES_PAGE_SIZE });
     entries.push(...response.list);
+    if (response.list.length === 0) {
+      return entries;
+    }
     const total = response.meta?.total;
-    if (response.list.length < ENTRIES_PAGE_SIZE || (total !== undefined && entries.length >= total)) {
+    if (total !== undefined) {
+      // The server may cap pageSize below what was requested, so a short page
+      // alone does not mean the last page — only total does.
+      if (entries.length >= total) {
+        return entries;
+      }
+    } else if (response.list.length < ENTRIES_PAGE_SIZE) {
       return entries;
     }
   }

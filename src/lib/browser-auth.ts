@@ -29,7 +29,10 @@ async function launchAvailableChromiumChannel(
   throw lastError;
 }
 
-const REQUIRED_HEADERS = ['mdapikey', 'mduid'] as const;
+// Login captures must carry authorization: pre-login API traffic can already
+// send mdapikey/mduid, and accepting it would close the browser and save a
+// token-less auth before the user logs in.
+const REQUIRED_HEADERS = ['authorization', 'mdapikey', 'mduid'] as const;
 
 const SELECTORS = {
   loginInput: '#container > div > div > form > mdw-input-container > input',
