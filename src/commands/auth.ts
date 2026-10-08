@@ -32,10 +32,12 @@ async function promptManualAuth(): Promise<AuthConfig> {
 
   const apiKey = await input({
     message: 'Mdapikey:',
+    validate: (value) => (value.trim() !== '' ? true : 'Mdapikey is required'),
   });
 
   const uid = await input({
     message: 'Mduid:',
+    validate: (value) => (value.trim() !== '' ? true : 'Mduid is required'),
   });
 
   const token = await password({

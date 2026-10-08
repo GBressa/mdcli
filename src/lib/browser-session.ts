@@ -395,14 +395,16 @@ export async function extractSessionFromBrowser(
       // Fallback signal: if the app is already authenticated, it skips the
       // login page entirely and goes straight to loading dashboard data --
       // loginconfig may never be set in that path, but the real API calls
-      // still carry the auth headers, so capture those too.
+      // still carry the auth headers, so capture those too. Authorization is
+      // required: pre-login traffic can already send mdapikey/mduid, and
+      // accepting it would save a token-less auth from a logged-out profile.
       const apiHeadersRef: { captured: Record<string, string> | null } = { captured: null };
       page.on('request', (request) => {
         if (apiHeadersRef.captured) return;
         const url = request.url();
         if (!url.includes(API_URL_PATTERN)) return;
         const headers = request.headers();
-        if (headers['mdapikey'] && headers['mduid']) {
+        if (headers['mdapikey'] && headers['mduid'] && headers['authorization']) {
           apiHeadersRef.captured = headers;
         }
       });
@@ -477,16 +479,20 @@ export async function extractSessionFromBrowser(
 
       // Fallback: read uid from localStorage rememberedUsers
       if (!uid) {
-        uid = await page.evaluate(() => {
-          try {
-            const rememberedUsers = localStorage.getItem('meudinheiro::rememberedUsers');
-            if (!rememberedUsers) return null;
-            const users = JSON.parse(rememberedUsers);
-            return users[0]?.id ? String(users[0].id) : null;
-          } catch {
-            return null;
-          }
-        });
+        // Same navigation hazard as above: a failed read must not fail the
+        // extraction when a token was already recovered elsewhere.
+        uid = await page
+          .evaluate(() => {
+            try {
+              const rememberedUsers = localStorage.getItem('meudinheiro::rememberedUsers');
+              if (!rememberedUsers) return null;
+              const users = JSON.parse(rememberedUsers);
+              return users[0]?.id ? String(users[0].id) : null;
+            } catch {
+              return null;
+            }
+          })
+          .catch(() => null);
       }
 
       if (!uid) {
