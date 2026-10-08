@@ -197,17 +197,19 @@ function parseFirefoxProfilesIni(iniPath: string): FirefoxProfile[] {
 }
 
 /**
- * Reads the profile chosen by the Firefox installer section ([Install*]
- * Default=...). That is the profile actually in use; the legacy Default=1
- * flag on [ProfileN] sections often still points at an older profile after
- * the user migrated (e.g. to a *-release profile), so the install default
- * wins. Returns null when no install section names a default.
+ * Reads the profiles chosen by Firefox installer sections ([Install*]
+ * Default=...). Returns every non-empty default in file order. Callers
+ * should only trust the result when exactly one install is present: with
+ * several Firefox installs (release, ESR, Developer Edition) there is no
+ * way to know which one the user runs, and the legacy Default=1 flag is
+ * the better guess.
  */
-export function parseFirefoxInstallDefault(iniPath: string): string | null {
+export function parseFirefoxInstallDefaults(iniPath: string): string[] {
   const content = readFileSync(iniPath, 'utf-8');
   const lines = content.split(/\r?\n/);
   const isInstallSection = /^\[Install[^\]]*\]$/;
 
+  const defaults: string[] = [];
   let inInstallSection = false;
 
   for (const line of lines) {
@@ -223,11 +225,13 @@ export function parseFirefoxInstallDefault(iniPath: string): string | null {
     const [key, ...valueParts] = trimmed.split('=');
     if (key === 'Default') {
       const value = valueParts.join('=').trim();
-      return value === '' ? null : value;
+      if (value !== '') {
+        defaults.push(value);
+      }
     }
   }
 
-  return null;
+  return defaults;
 }
 
 function checkChromiumProfileReadable(getPath: () => string): { ok: true } | { ok: false; reason: string } {
@@ -304,7 +308,10 @@ export function getFirefoxProfilePath(): string {
 
   // Prefer the install-section default (the profile actually in use) over the
   // legacy Default=1 flag, which can point at an older migrated-away profile.
-  const installDefault = parseFirefoxInstallDefault(profilesIniPath);
+  // With several Firefox installs the default is ambiguous, so fall back to
+  // the legacy flag instead of guessing the wrong installation.
+  const installDefaults = parseFirefoxInstallDefaults(profilesIniPath);
+  const installDefault = installDefaults.length === 1 ? installDefaults[0] : null;
   if (installDefault) {
     const installPath = isAbsolute(installDefault) ? installDefault : join(firefoxDir, installDefault);
     if (existsSync(installPath)) {
