@@ -343,8 +343,8 @@ async function doctorAction(): Promise<void> {
   }
 
   try {
-    getFirefoxProfilePath();
-    logger.success('Firefox profile found');
+    const firefoxProfile = getFirefoxProfilePath();
+    logger.success(`Firefox profile found: ${firefoxProfile}`);
   } catch (error) {
     logger.warning(`Firefox profile not found: ${error instanceof Error ? error.message : 'unknown error'}`);
   }

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { cp, mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
 import { createDecipheriv, pbkdf2Sync } from 'node:crypto';
@@ -196,6 +196,40 @@ function parseFirefoxProfilesIni(iniPath: string): FirefoxProfile[] {
   return profiles;
 }
 
+/**
+ * Reads the profile chosen by the Firefox installer section ([Install*]
+ * Default=...). That is the profile actually in use; the legacy Default=1
+ * flag on [ProfileN] sections often still points at an older profile after
+ * the user migrated (e.g. to a *-release profile), so the install default
+ * wins. Returns null when no install section names a default.
+ */
+export function parseFirefoxInstallDefault(iniPath: string): string | null {
+  const content = readFileSync(iniPath, 'utf-8');
+  const lines = content.split(/\r?\n/);
+  const isInstallSection = /^\[Install[^\]]*\]$/;
+
+  let inInstallSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('[')) {
+      inInstallSection = isInstallSection.test(trimmed);
+      continue;
+    }
+
+    if (!inInstallSection) continue;
+
+    const [key, ...valueParts] = trimmed.split('=');
+    if (key === 'Default') {
+      const value = valueParts.join('=').trim();
+      return value === '' ? null : value;
+    }
+  }
+
+  return null;
+}
+
 function checkChromiumProfileReadable(getPath: () => string): { ok: true } | { ok: false; reason: string } {
   let profilePath: string;
   try {
@@ -268,6 +302,16 @@ export function getFirefoxProfilePath(): string {
     throw new Error(`No Firefox profiles found in: ${profilesIniPath}\nTry: mdcli auth login --session chrome or --browser`);
   }
 
+  // Prefer the install-section default (the profile actually in use) over the
+  // legacy Default=1 flag, which can point at an older migrated-away profile.
+  const installDefault = parseFirefoxInstallDefault(profilesIniPath);
+  if (installDefault) {
+    const installPath = isAbsolute(installDefault) ? installDefault : join(firefoxDir, installDefault);
+    if (existsSync(installPath)) {
+      return installPath;
+    }
+  }
+
   const defaultProfile = profiles.find((p) => p.isDefault) ?? profiles[0];
 
   const profilePath = defaultProfile.isRelative
@@ -285,14 +329,32 @@ function isMacOsSandboxError(code: string): boolean {
   return process.platform === 'darwin' && (code === 'EPERM' || code === 'EACCES');
 }
 
-async function copyProfileToTemp(profilePath: string, excludeLocks = true): Promise<string> {
+/** Runtime lock files must not travel into a copied profile: a stale lock can
+ * make the launched copy refuse the profile as "already in use". Matched by
+ * exact basename so similarly-named data files are still copied. */
+function isBrowserLockFile(src: string): boolean {
+  const base = src.split(/[\\/]/).pop() ?? src;
+  return (
+    base === 'SingletonLock' ||
+    base === 'SingletonCookie' ||
+    base === 'SingletonSocket' ||
+    base === 'lock' ||
+    base === '.parentlock'
+  );
+}
+
+/** Suggests login alternatives other than the browser that just failed. */
+function sessionAlternatives(failedBrowser: string): string {
+  const others = ['chrome', 'edge', 'firefox'].filter((b) => b !== failedBrowser);
+  return [...others.map((b) => `--session ${b}`), '--browser'].join(' or ');
+}
+
+async function copyProfileToTemp(profilePath: string, browserType: string, excludeLocks = true): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'mdcli-profile-'));
   try {
     await cp(profilePath, tempDir, {
       recursive: true,
-      filter: excludeLocks
-        ? (src) => !src.endsWith('SingletonLock') && !src.endsWith('SingletonCookie') && !src.endsWith('SingletonSocket')
-        : undefined,
+      filter: excludeLocks ? (src) => !isBrowserLockFile(src) : undefined,
     });
   } catch (error) {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -304,7 +366,7 @@ async function copyProfileToTemp(profilePath: string, excludeLocks = true): Prom
           `  1. Open System Settings -> Privacy & Security -> Full Disk Access\n` +
           `  2. Enable it for the terminal app you're running mdcli from (Terminal, iTerm, VS Code, etc.)\n` +
           `  3. Restart the terminal and try again\n` +
-          `Alternatively, try: mdcli auth login --session firefox or --browser`
+          `Alternatively, try: mdcli auth login ${sessionAlternatives(browserType)}`
       );
     }
     throw error;
@@ -354,7 +416,7 @@ export async function extractSessionFromBrowser(
   let tempDir: string | null = null;
 
   try {
-    tempDir = await copyProfileToTemp(profilePath);
+    tempDir = await copyProfileToTemp(profilePath, browserType);
 
     const browserLauncher = browserType === 'firefox' ? firefox : chromium;
     const channel = browserType === 'chrome' ? 'chrome' : browserType === 'edge' ? 'msedge' : undefined;
