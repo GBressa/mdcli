@@ -35,7 +35,7 @@ import { extractSessionFromBrowser } from './browser-session.js';
 
 const BASE_URL = process.env.MDCLI_API_URL ?? 'https://app.meudinheiroweb.com.br/api';
 
-let isRefreshing = false;
+let refreshPromise: Promise<AuthConfig> | null = null;
 
 function buildHeaders(auth: AuthConfig): ApiHeaders {
   const headers: ApiHeaders = {
@@ -72,28 +72,34 @@ async function reacquireAuth(): Promise<{ auth: AuthConfig; method: AuthMethod }
   throw new Error('The API rejected the saved credentials (401). Run "mdcli auth login" to re-authenticate.');
 }
 
+/** Refreshes auth once and shares the result: concurrent 401s (e.g. the
+ * parallel lookups in entries loadNames) all wait for the same refresh and
+ * then retry with the new credentials instead of failing. */
+async function getRefreshedAuth(): Promise<AuthConfig> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      console.log('🔄 Credentials rejected, refreshing with the last login method...');
+      const { auth: newAuth, method } = await reacquireAuth();
+      setAuth(newAuth, method);
+      console.log('✓ Credentials refreshed');
+      return newAuth;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 async function refreshAuthAndRetry<T>(
   requestFn: (auth: AuthConfig) => Promise<Response>
 ): Promise<T> {
-  if (isRefreshing) {
-    throw new Error('Authentication refresh already in progress');
-  }
+  const newAuth = await getRefreshedAuth();
 
-  isRefreshing = true;
-  try {
-    console.log('🔄 Credentials rejected, refreshing with the last login method...');
-    const { auth: newAuth, method } = await reacquireAuth();
-    setAuth(newAuth, method);
-    console.log('✓ Credentials refreshed');
-
-    const response = await requestFn(newAuth);
-    if (!response.ok) {
-      throw new Error(`API request failed after refresh: ${response.status} ${response.statusText}`);
-    }
-    return response.json() as Promise<T>;
-  } finally {
-    isRefreshing = false;
+  const response = await requestFn(newAuth);
+  if (!response.ok) {
+    throw new Error(`API request failed after refresh: ${response.status} ${response.statusText}`);
   }
+  return response.json() as Promise<T>;
 }
 
 async function apiRequest<T>(endpoint: string): Promise<T> {
